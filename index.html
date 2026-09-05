@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kalkulator i Dziennik Budowy</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900 min-h-screen pb-12">
+
+  <header class="bg-slate-900 text-white sticky top-0 z-30 shadow-md">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <i data-lucide="hammer" class="w-6 h-6 text-amber-400"></i>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight">Kalkulator Budowy</h1>
+          <div id="syncStatus" class="text-[10px] text-emerald-400 flex items-center gap-1 font-medium">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Chmura Google aktywna
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <button onclick="syncWithCloud()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center shadow transition" title="Wymuś synchronizację">
+          <i data-lucide="refresh-cw" id="syncIcon" class="w-3.5 h-3.5"></i>
+        </button>
+        <button onclick="openStageModal()" class="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold flex items-center shadow transition">
+          <i data-lucide="folder-plus" class="w-4 h-4 mr-1"></i> Dodaj etap
+        </button>
+        <button onclick="openModal()" class="bg-amber-500 hover:bg-amber-600 text-slate-900 px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold flex items-center shadow transition">
+          <i data-lucide="plus" class="w-4 h-4 mr-1"></i> Wydatek
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6 space-y-6">
+
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+        <span class="text-xs font-semibold uppercase text-slate-500 tracking-wider">Wydano łącznie (brutto)</span>
+        <div class="text-2xl font-black text-slate-900 mt-1" id="totalBrutto">0,00 zł</div>
+        <div class="text-xs text-slate-500 mt-1" id="totalNetto">Netto: 0,00 zł</div>
+      </div>
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+        <span class="text-xs font-semibold uppercase text-slate-500 tracking-wider">Liczba wpisów</span>
+        <div class="text-2xl font-black text-slate-900 mt-1" id="expenseCount">0</div>
+        <div class="text-xs text-slate-500 mt-1">Zapisane w Google Sheets</div>
+      </div>
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+        <div>
+          <span class="text-xs font-semibold uppercase text-slate-500 tracking-wider">Kopia i Raporty</span>
+          <p class="text-xs text-slate-500 mt-1">Lokalna kopia i arkusz CSV</p>
+        </div>
+        <div class="flex space-x-2 mt-3">
+          <button onclick="exportJSON()" class="text-xs border border-slate-300 hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded flex items-center">
+            <i data-lucide="download" class="w-3.5 h-3.5 mr-1"></i> JSON
+          </button>
+          <label class="text-xs border border-slate-300 hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded flex items-center cursor-pointer">
+            <i data-lucide="upload" class="w-3.5 h-3.5 mr-1"></i> Wczytaj
+            <input type="file" id="importInput" onchange="importJSON(event)" class="hidden" accept=".json">
+          </label>
+          <button onclick="exportCSV()" class="text-xs bg-slate-800 hover:bg-slate-700 text-white px-2 py-1.5 rounded flex items-center">
+            <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5 mr-1"></i> CSV
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+        <h3 class="text-sm font-bold text-slate-700 mb-3 flex items-center">
+          <i data-lucide="pie-chart" class="w-4 h-4 mr-1.5 text-amber-500"></i> Koszty według Głównych Faz
+        </h3>
+        <div class="relative h-64">
+          <canvas id="phaseChart"></canvas>
+        </div>
+      </div>
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+        <h3 class="text-sm font-bold text-slate-700 mb-3 flex items-center">
+          <i data-lucide="bar-chart-2" class="w-4 h-4 mr-1.5 text-amber-500"></i> Koszty według Typu Wydatku
+        </h3>
+        <div class="relative h-64">
+          <canvas id="categoryChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="space-y-3" id="phasesContainer">
+      <div class="flex justify-between items-center mb-1">
+        <h2 class="text-base font-bold text-slate-800">Wydatki i rozbicie na branże / etapy</h2>
+      </div>
+    </section>
+
+  </main>
+
+  <div id="stageModal" class="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center hidden px-4">
+    <div class="bg-white w-full max-w-md rounded-2xl p-6 shadow-xl relative">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+          <i data-lucide="folder-plus" class="w-5 h-5 text-amber-500"></i> Dodaj nowy etap budowy
+        </h3>
+        <button onclick="closeStageModal()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="stageForm" onsubmit="saveCustomStage(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Do której fazy przypisać?</label>
+          <select id="stagePhaseTarget" required class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-amber-500 outline-none"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Nazwa nowego etapu / branży</label>
+          <input type="text" id="newStageName" required placeholder="np. 4.7 Fotowoltaika i magazyn energii" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-amber-500 outline-none">
+        </div>
+        <div class="pt-2 flex justify-end space-x-2">
+          <button type="button" onclick="closeStageModal()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Anuluj</button>
+          <button type="submit" class="px-5 py-2 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg shadow">Utwórz etap</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="expenseModal" class="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center hidden px-4">
+    <div class="bg-white w-full max-w-lg rounded-2xl p-6 shadow-xl relative max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-bold text-slate-900">Dodaj wydatek</h3>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="expenseForm" onsubmit="saveExpense(event)" class="space-y-4">
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <label class="block text-xs font-semibold text-slate-700 uppercase">Etap / branża</label>
+            <button type="button" onclick="closeModal(); openStageModal();" class="text-xs text-amber-600 hover:underline font-semibold">+ Nowy etap</button>
+          </div>
+          <select id="stageSelect" required class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-amber-500 outline-none"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Nazwa pozycji (towar / usługa)</label>
+          <input type="text" id="expenseName" required placeholder="np. Montaż wiązarów, Rury PEX" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-amber-500 outline-none">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Kategoria</label>
+            <select id="expenseCategory" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-amber-500 outline-none">
+              <option value="Materiał">Materiał</option>
+              <option value="Robocizna">Robocizna</option>
+              <option value="Sprzęt">Sprzęt</option>
+              <option value="Grunt">Grunt / Działka</option>
+              <option value="Urzędowe">Urzędowe / Notariusz</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Data wydatku</label>
+            <input type="date" id="expenseDate" required class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-amber-500 outline-none">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Kwota zapłacona (PLN)</label>
+            <input type="number" step="0.01" id="expenseAmount" required placeholder="0.00" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-amber-500 outline-none font-bold">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Stawka VAT</label>
+            <select id="expenseVat" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-amber-500 outline-none">
+              <option value="0.00">0% / Zwolniony (łączna kwota)</option>
+              <option value="0.23">23%</option>
+              <option value="0.08">8%</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Dostawca / Hurtownia / Wykonawca</label>
+          <input type="text" id="expenseVendor" placeholder="np. Hurtownia elektryczna, Castorama" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-amber-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Nr faktury / paragonu / notatki</label>
+          <input type="text" id="expenseNotes" placeholder="np. FV 45/09/2026, seria czarny mat" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-amber-500 outline-none">
+        </div>
+        <div class="pt-2 flex justify-end space-x-2">
+          <button type="button" onclick="closeModal()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Anuluj</button>
+          <button type="submit" class="px-5 py-2 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg shadow">Zapisz wydatek</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // ==========================================
+    // TUTAJ WSTAW SWÓJ LINK SKOPIOWANY Z GOOGLE APPS SCRIPT
+    // ==========================================
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwlQiFZuvBZFatNa2HR_olAx7V7yqESXo2BlvJ5q0_UTNBsjl0gq6XhUNh3C5yF5VVe4A/exec";
+
+    const DEFAULT_PHASES = [
+      { id: 0, name: "Faza 0: Przygotowanie i formalności", stages: ["0.1 Zakup działki i notariusz", "0.2 Badania gruntu i geodeta", "0.3 Projekt, adaptacja i pozwolenie na budowę"] },
+      { id: 1, name: "Faza 1: Stan zero i płyta fundamentowa", stages: ["1.1 Przygotowanie placu budowy i przyłącza tymczasowe", "1.2 Prace ziemne i korytowanie", "1.3 Płyta fundamentowa i izolacje"] },
+      { id: 2, name: "Faza 2: Prefabrykowany SSO", stages: ["2.1 Produkcja prefabrykowanych ścian", "2.2 Montaż konstrukcji ściennej i dźwig", "2.3 Wiązary dachowe i pokrycie dachu"] },
+      { id: 3, name: "Faza 3: Stan surowy zamknięty (SSZ)", stages: ["3.1 Okna fasadowe i przeszklenia tarasowe", "3.2 Drzwi zewnętrzne i ciepły montaż"] },
+      { id: 4, name: "Faza 4: Instalacje i stan deweloperski", stages: ["4.1 Instalacja elektryczna i teletechniczna", "4.2 Instalacja wod-kan i ogrzewanie podłogowe", "4.3 Wentylacja mechaniczna (rekuperacja)", "4.4 Ocieplenie stropu i sufity GK", "4.5 Elewacja zewnętrzna", "4.6 Pompa ciepła i źródło ciepła"] },
+      { id: 5, name: "Faza 5: Wykończenie wnętrz", stages: ["5.1 Malowanie i gładzie", "5.2 Podłogi i listwy", "5.3 Łazienki i biały montaż", "5.4 Drzwi wewnętrzne", "5.5 Osprzęt elektryczny i lampy", "5.6 Kuchnia i meble w stałej zabudowie"] },
+      { id: 6, name: "Faza 6: Otoczenie i odbiory końcowe", stages: ["6.1 Przyłącza stałe i odprowadzenie wody", "6.2 Podjazd, taras i ogrodzenie", "6.3 Inwentaryzacja geodezyjna i odbiór PINB"] },
+      { id: 7, name: "Faza 7: Architektura ogrodowa i zieleń", stages: ["7.1 Przygotowanie terenu, humusowanie i siatka na krety", "7.2 Trawnik (z siewu / z rolki)", "7.3 Automatyczne nawadnianie ogrodu", "7.4 Nasadzenia (drzewa, krzewy, rabaty)", "7.5 Mała architektura (domek narzędziowy, wiata, drewutnia, altana)", "7.6 Oświetlenie ogrodowe i instalacja zewnętrzna"] }
+    ];
+
+    let PHASES = JSON.parse(localStorage.getItem("budowa_phases_custom")) || DEFAULT_PHASES;
+    let expenses = JSON.parse(localStorage.getItem("budowa_expenses")) || [];
+    let phaseChart = null;
+    let categoryChart = null;
+
+    const formatPLN = (val) => new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' }).format(val);
+
+    function setSyncStatus(msg, isError = false, inProgress = false) {
+      const el = document.getElementById("syncStatus");
+      const icon = document.getElementById("syncIcon");
+      if (inProgress) icon.classList.add("animate-spin");
+      else icon.classList.remove("animate-spin");
+
+      el.className = `text-[10px] flex items-center gap-1 font-medium ${isError ? 'text-rose-400' : 'text-emerald-400'}`;
+      el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${isError ? 'bg-rose-400' : 'bg-emerald-400'} ${inProgress ? 'animate-ping' : ''}"></span> ${msg}`;
+    }
+
+    async function syncWithCloud() {
+      if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL === "TUTAJ_WKLEJ_TWOJ_URL") {
+        setSyncStatus("Tryb lokalny (brak URL Google)", false);
+        return;
+      }
+
+      setSyncStatus("Synchronizacja...", false, true);
+
+      try {
+        const res = await fetch(GOOGLE_SCRIPT_URL);
+        const data = await res.json();
+        
+        if (data.expenses && Array.isArray(data.expenses)) {
+          expenses = data.expenses;
+          localStorage.setItem("budowa_expenses", JSON.stringify(expenses));
+        }
+        if (data.phases) {
+          PHASES = data.phases;
+          localStorage.setItem("budowa_phases_custom", JSON.stringify(PHASES));
+        }
+
+        setSyncStatus("Zsynchronizowano z Google Sheets");
+        initStageSelect();
+        renderApp();
+      } catch(err) {
+        setSyncStatus("Błąd połączenia z chmurą", true);
+      }
+    }
+
+    async function pushToCloud() {
+      if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL === "TUTAJ_WKLEJ_TWOJ_URL") return;
+
+      setSyncStatus("Wysyłanie do Google...", false, true);
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expenses: expenses, phases: PHASES })
+        });
+        setSyncStatus("Zapisano w Google Sheets");
+      } catch(err) {
+        setSyncStatus("Błąd zapisu w chmurze", true);
+      }
+    }
+
+    function initStageSelect() {
+      const select = document.getElementById("stageSelect");
+      select.innerHTML = "";
+      PHASES.forEach(phase => {
+        const optgroup = document.createElement("optgroup");
+        optgroup.label = phase.name;
+        phase.stages.forEach(stage => {
+          const option = document.createElement("option");
+          option.value = `${phase.id}|${stage}`;
+          option.textContent = stage;
+          optgroup.appendChild(option);
+        });
+        select.appendChild(optgroup);
+      });
+
+      const targetPhaseSelect = document.getElementById("stagePhaseTarget");
+      targetPhaseSelect.innerHTML = "";
+      PHASES.forEach(phase => {
+        const opt = document.createElement("option");
+        opt.value = phase.id;
+        opt.textContent = phase.name;
+        targetPhaseSelect.appendChild(opt);
+      });
+    }
+
+    function openModal() {
+      document.getElementById("expenseDate").valueAsDate = new Date();
+      document.getElementById("expenseModal").classList.remove("hidden");
+    }
+
+    function closeModal() {
+      document.getElementById("expenseModal").classList.add("hidden");
+      document.getElementById("expenseForm").reset();
+    }
+
+    function openStageModal() {
+      document.getElementById("stageModal").classList.remove("hidden");
+    }
+
+    function closeStageModal() {
+      document.getElementById("stageModal").classList.add("hidden");
+      document.getElementById("stageForm").reset();
+    }
+
+    function saveCustomStage(e) {
+      e.preventDefault();
+      const phaseId = parseInt(document.getElementById("stagePhaseTarget").value);
+      const stageName = document.getElementById("newStageName").value.trim();
+
+      const phase = PHASES.find(p => p.id === phaseId);
+      if (phase && !phase.stages.includes(stageName)) {
+        phase.stages.push(stageName);
+        localStorage.setItem("budowa_phases_custom", JSON.stringify(PHASES));
+        pushToCloud();
+        initStageSelect();
+        renderApp();
+      }
+      closeStageModal();
+    }
+
+    function saveExpense(e) {
+      e.preventDefault();
+      const [phaseId, stageName] = document.getElementById("stageSelect").value.split("|");
+      const brutto = parseFloat(document.getElementById("expenseAmount").value);
+      const vatRate = parseFloat(document.getElementById("expenseVat").value);
+      const netto = vatRate > 0 ? (brutto / (1 + vatRate)) : brutto;
+
+      const newExpense = {
+        id: crypto.randomUUID(),
+        phaseId: parseInt(phaseId),
+        stage: stageName,
+        name: document.getElementById("expenseName").value,
+        category: document.getElementById("expenseCategory").value,
+        date: document.getElementById("expenseDate").value,
+        brutto: brutto,
+        netto: netto,
+        vatRate: vatRate,
+        vendor: document.getElementById("expenseVendor").value,
+        notes: document.getElementById("expenseNotes").value
+      };
+
+      expenses.push(newExpense);
+      localStorage.setItem("budowa_expenses", JSON.stringify(expenses));
+      pushToCloud();
+      closeModal();
+      renderApp();
+    }
+
+    function deleteExpense(id) {
+      if (confirm("Czy na pewno chcesz usunąć tę pozycję kosztową?")) {
+        expenses = expenses.filter(item => item.id !== id);
+        localStorage.setItem("budowa_expenses", JSON.stringify(expenses));
+        pushToCloud();
+        renderApp();
+      }
+    }
+
+    function renderPhases() {
+      const container = document.getElementById("phasesContainer");
+      container.innerHTML = `<h2 class="text-base font-bold text-slate-800 mb-2">Wydatki i rozbicie na branże / etapy</h2>`;
+
+      PHASES.forEach(phase => {
+        const phaseExpenses = expenses.filter(e => e.phaseId === phase.id);
+        const phaseTotalBrutto = phaseExpenses.reduce((sum, e) => sum + e.brutto, 0);
+        const activeStages = phase.stages.filter(st => phaseExpenses.some(e => e.stage === st));
+
+        const card = document.createElement("div");
+        card.className = "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden";
+        
+        card.innerHTML = `
+          <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center cursor-pointer select-none" onclick="toggleAccordion(${phase.id})">
+            <div>
+              <span class="font-bold text-slate-800 text-sm md:text-base">${phase.name}</span>
+              <span class="text-xs text-slate-500 block mt-0.5">${phaseExpenses.length} wpisów w ${activeStages.length} branżach</span>
+            </div>
+            <div class="flex items-center space-x-3">
+              <span class="font-black text-slate-900 text-sm md:text-base">${formatPLN(phaseTotalBrutto)}</span>
+              <i data-lucide="chevron-down" id="icon-${phase.id}" class="w-4 h-4 text-slate-400 transition-transform"></i>
+            </div>
+          </div>
+
+          <div id="content-${phase.id}" class="hidden p-4 space-y-4">
+            ${phaseExpenses.length === 0 ? '<p class="text-xs text-slate-400 italic">Brak wprowadzonych wydatków w tej fazie.</p>' : `
+              <div class="flex flex-wrap gap-2 pb-2 border-b border-slate-100">
+                ${activeStages.map(st => {
+                  const stageTotal = phaseExpenses.filter(e => e.stage === st).reduce((sum, e) => sum + e.brutto, 0);
+                  const stageCount = phaseExpenses.filter(e => e.stage === st).length;
+                  return `
+                    <div class="bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs flex items-center gap-1.5">
+                      <span class="font-medium text-slate-700">${st}:</span>
+                      <span class="font-bold text-slate-900">${formatPLN(stageTotal)}</span>
+                      <span class="text-[10px] text-slate-400">(${stageCount})</span>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+
+              <div class="space-y-4">
+                ${activeStages.map(st => {
+                  const itemsInStage = phaseExpenses.filter(e => e.stage === st);
+                  const stTotal = itemsInStage.reduce((sum, e) => sum + e.brutto, 0);
+
+                  return `
+                    <div class="border border-slate-200 rounded-lg overflow-hidden">
+                      <div class="bg-slate-100/70 px-3 py-2 flex justify-between items-center text-xs font-semibold text-slate-800">
+                        <span class="flex items-center gap-1.5">
+                          <i data-lucide="folder" class="w-3.5 h-3.5 text-amber-500"></i> ${st}
+                        </span>
+                        <span class="font-bold text-slate-900">Suma: ${formatPLN(stTotal)}</span>
+                      </div>
+                      <table class="w-full text-left text-xs text-slate-600">
+                        <thead class="text-[10px] uppercase bg-slate-50 text-slate-500 border-b border-slate-200">
+                          <tr>
+                            <th class="p-2">Data</th>
+                            <th class="p-2">Pozycja / Towar</th>
+                            <th class="p-2">Kategoria</th>
+                            <th class="p-2">Dostawca</th>
+                            <th class="p-2 text-right">Kwota brutto</th>
+                            <th class="p-2 text-center w-12">Akcja</th>
+                          </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                          ${itemsInStage.map(e => `
+                            <tr class="hover:bg-slate-50">
+                              <td class="p-2 whitespace-nowrap text-slate-500">${e.date}</td>
+                              <td class="p-2">
+                                <span class="font-medium text-slate-800 block">${e.name}</span>
+                                ${e.notes ? `<span class="text-[11px] text-slate-400">${e.notes}</span>` : ''}
+                              </td>
+                              <td class="p-2"><span class="px-2 py-0.5 rounded text-[10px] font-semibold ${getCategoryBadge(e.category)}">${e.category}</span></td>
+                              <td class="p-2 text-slate-600">${e.vendor || '-'}</td>
+                              <td class="p-2 text-right font-bold text-slate-900 whitespace-nowrap">${formatPLN(e.brutto)}</td>
+                              <td class="p-2 text-center">
+                                <button onclick="deleteExpense('${e.id}')" class="text-slate-400 hover:text-red-500" title="Usuń">
+                                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                              </td>
+                            </tr>
+                          `).join('')}
+                        </tbody>
+                      </table>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function toggleAccordion(phaseId) {
+      document.getElementById(`content-${phaseId}`).classList.toggle("hidden");
+      document.getElementById(`icon-${phaseId}`).classList.toggle("rotate-180");
+    }
+
+    function getCategoryBadge(cat) {
+      switch(cat) {
+        case 'Grunt': return 'bg-stone-200 text-stone-800 border border-stone-300';
+        case 'Materiał': return 'bg-blue-100 text-blue-700';
+        case 'Robocizna': return 'bg-emerald-100 text-emerald-700';
+        case 'Sprzęt': return 'bg-amber-100 text-amber-700';
+        default: return 'bg-purple-100 text-purple-700';
+      }
+    }
+
+    function renderCharts() {
+      const phaseTotals = PHASES.map(phase => expenses.filter(e => e.phaseId === phase.id).reduce((sum, e) => sum + e.brutto, 0));
+      const categories = ['Materiał', 'Robocizna', 'Sprzęt', 'Grunt', 'Urzędowe'];
+      const categoryTotals = categories.map(cat => expenses.filter(e => e.category === cat).reduce((sum, e) => sum + e.brutto, 0));
+
+      if (phaseChart) phaseChart.destroy();
+      phaseChart = new Chart(document.getElementById('phaseChart').getContext('2d'), {
+        type: 'doughnut',
+        data: {
+          labels: PHASES.map(p => `Faza ${p.id}`),
+          datasets: [{
+            data: phaseTotals,
+            backgroundColor: ['#78716c', '#0284c7', '#f59e0b', '#10b981', '#6366f1', '#ec4899', '#8b5cf6', '#14b8a6']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } }
+        }
+      });
+
+      if (categoryChart) categoryChart.destroy();
+      categoryChart = new Chart(document.getElementById('categoryChart').getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: categories,
+          datasets: [{ label: 'PLN', data: categoryTotals, backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#78716c', '#8b5cf6'] }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+
+    function renderTotals() {
+      const bruttoSum = expenses.reduce((acc, e) => acc + e.brutto, 0);
+      const nettoSum = expenses.reduce((acc, e) => acc + e.netto, 0);
+      document.getElementById("totalBrutto").textContent = formatPLN(bruttoSum);
+      document.getElementById("totalNetto").textContent = `Netto: ${formatPLN(nettoSum)}`;
+      document.getElementById("expenseCount").textContent = expenses.length;
+    }
+
+    function renderApp() {
+      renderTotals();
+      renderPhases();
+      renderCharts();
+      lucide.createIcons();
+    }
+
+    function exportJSON() {
+      const blob = new Blob([JSON.stringify({ phases: PHASES, expenses: expenses }, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `budowa_kopia_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+    }
+
+    function importJSON(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const imported = JSON.parse(e.target.result);
+          expenses = imported.expenses || [];
+          if (imported.phases) PHASES = imported.phases;
+          localStorage.setItem("budowa_expenses", JSON.stringify(expenses));
+          localStorage.setItem("budowa_phases_custom", JSON.stringify(PHASES));
+          pushToCloud();
+          initStageSelect();
+          renderApp();
+        } catch(err) {
+          alert("Błąd pliku JSON.");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function exportCSV() {
+      if (expenses.length === 0) return alert("Brak danych.");
+      let csv = "\uFEFFData;Faza;Etap;Nazwa;Kategoria;Wykonawca;Netto (PLN);VAT;Brutto (PLN);Notatki\n";
+      expenses.forEach(e => {
+        csv += `"${e.date}";"Faza ${e.phaseId}";"${e.stage}";"${e.name}";"${e.category}";"${e.vendor || ''}";"${e.netto.toFixed(2)}";"${e.vatRate * 100}%";"${e.brutto.toFixed(2)}";"${e.notes || ''}"\n`;
+      });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `raport_budowa_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      initStageSelect();
+      renderApp();
+      syncWithCloud();
+    });
+  </script>
+</body>
+</html>
