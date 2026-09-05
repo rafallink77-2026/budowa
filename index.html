@@ -569,7 +569,7 @@
       if (expenses.length === 0) return alert("Brak danych.");
       let csv = "\uFEFFData;Faza;Etap;Nazwa;Kategoria;Wykonawca;Netto (PLN);VAT;Brutto (PLN);Notatki\n";
       expenses.forEach(e => {
-        csv += `"${new Date(e.date).toLocaleDateString('pl-PL')}";"Faza ${e.phaseId}";...
+       csv += `"${new Date(e.date).toLocaleDateString('pl-PL')}";"Faza ${e.phaseId}";"${e.stage}";"${e.name}";"${e.category}";"${e.vendor || ''}";"${e.netto.toFixed(2)}";"${e.vatRate * 100}%";"${e.brutto.toFixed(2)}";"${e.notes || ''}"\n`;
       });
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const a = document.createElement("a");
