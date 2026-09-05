@@ -440,7 +440,7 @@
                         <tbody class="divide-y divide-slate-100">
                           ${itemsInStage.map(e => `
                             <tr class="hover:bg-slate-50">
-                              <td class="p-2 whitespace-nowrap text-slate-500">${e.date}</td>
+                              <td class="p-2 whitespace-nowrap text-slate-500">${formatujDate(e.date)}</td>
                               <td class="p-2">
                                 <span class="font-medium text-slate-800 block">${e.name}</span>
                                 ${e.notes ? `<span class="text-[11px] text-slate-400">${e.notes}</span>` : ''}
@@ -583,6 +583,17 @@
       renderApp();
       syncWithCloud();
     });
+    function formatujDate(d) {
+  if (!d) return "-";
+  const data = new Date(d);
+  if (isNaN(data.getTime())) return d;
+  return data.toLocaleDateString('pl-PL', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+}
   </script>
 </body>
 </html>
